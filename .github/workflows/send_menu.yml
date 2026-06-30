@@ -1,48 +1,59 @@
-name: Send Meal Menu
+import os
+import requests
+from datetime import datetime, timezone, timedelta
 
-on:
-  schedule:
-    - cron: '30 3 * * *'   # 아침 06:30 레바논 (UTC+3 = UTC 03:30)
-    - cron: '0 7 * * *'    # 점심 10:00 레바논 (UTC 07:00)
-    - cron: '0 13 * * *'   # 저녁 16:00 레바논 (UTC 13:00)
-  workflow_dispatch:
-    inputs:
-      meal_type:
-        description: '테스트 식사 선택 (아침/점심/저녁)'
-        required: true
-        default: '점심'
+LEBANON_TZ = timezone(timedelta(hours=3))
 
-jobs:
-  send-menu:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+MEAL_TYPE = os.environ["MEAL_TYPE"]
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+def parse_menu():
+    menu = {}
+    current_date = None
+    with open("menu.txt", "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            if len(line) == 10 and line[4] == "-" and line[7] == "-":
+                current_date = line
+                menu[current_date] = {}
+            elif current_date and ":" in line:
+                meal, items = line.split(":", 1)
+                meal = meal.strip()
+                if meal in ["아침", "점심", "저녁"]:
+                    menu[current_date][meal] = items.strip()
+    return menu
 
-      - run: pip install requests
+def main():
+    now = datetime.now(LEBANON_TZ)
+    today = now.strftime("%Y-%m-%d")
+    emoji = {"아침": "🌅", "점심": "☀️", "저녁": "🌙"}
+    menu = parse_menu()
 
-      - name: 식사 타입 결정
-        id: meal
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "type=${{ github.event.inputs.meal_type }}" >> $GITHUB_OUTPUT
-          else
-            HOUR=$(date -u +%H)
-            if [ "$HOUR" = "03" ]; then
-              echo "type=아침" >> $GITHUB_OUTPUT
-            elif [ "$HOUR" = "07" ]; then
-              echo "type=점심" >> $GITHUB_OUTPUT
-            else
-              echo "type=저녁" >> $GITHUB_OUTPUT
-            fi
-          fi
+    if today not in menu or MEAL_TYPE not in menu[today]:
+        msg = f"⚠️ {today} {MEAL_TYPE} 메뉴 정보 없음\nmenu.txt를 업데이트해주세요."
+    else:
+        items_raw = menu[today][MEAL_TYPE]
+        # 쉼표로 나눠서 줄바꿈 처리
+        items_list = [i.strip() for i in items_raw.split(",") if i.strip()]
+        items_formatted = "\n".join(f"• {item}" for item in items_list)
 
-      - name: 메뉴 발송
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MEAL_TYPE: ${{ steps.meal.outputs.type }}
-        run: python send_menu.py
+        msg = (
+            f"{emoji.get(MEAL_TYPE, '🍽')} <b>{MEAL_TYPE} 메뉴</b>\n"
+            f"📅 {today}\n"
+            f"──────────────\n"
+            f"{items_formatted}\n"
+            f"──────────────\n"
+            f"맛있게 드세요! 😊"
+        )
+
+    requests.post(
+        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+        json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}
+    ).raise_for_status()
+    print("✅ 전송 완료")
+
+if __name__ == "__main__":
+    main()
