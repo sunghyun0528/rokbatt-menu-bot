@@ -8,7 +8,7 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 MEAL_TYPE = os.environ["MEAL_TYPE"]
 
-PAGES_BASE_URL = "https://sunghyun0528.github.io/rokbatt-menu-bot"
+PAGES_BASE_URL = "https://rokbatt.github.io/rokbatt-menu-bot"
 
 def parse_menu():
     menu = {}
